@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>多股网格 FIFO 盈亏跟踪器</title>
+    <style>
+        :root {
+            --ios-blue: #007aff;
+            --ios-green: #34c759;
+            --ios-red: #ff3b30;
+            --ios-bg: #f2f2f7;
+            --ios-card: #ffffff;
+            --ios-text: #000000;
+            --ios-secondary-text: #8e8e93;
+            --ios-border: #e5e5ea;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+            background-color: var(--ios-bg);
+            color: var(--ios-text);
+            line-height: 1.4;
+            padding-bottom: 60px;
+        }
+
+        .header {
+            background-color: var(--ios-card);
+            padding: 20px 16px 12px 16px;
+            border-bottom: 1px solid var(--ios-border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header h1 { font-size: 20px; font-weight: 700; text-align: center; }
+
+        .container { padding: 16px; max-width: 650px; margin: 0 auto; }
+
+        /* 仪表盘 */
+        .dashboard {
+            background: linear-gradient(135deg, #1f2937, #111827);
+            color: #ffffff;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .dashboard-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .dashboard-title { font-size: 13px; color: #9ca3af; text-transform: uppercase; }
+        .stock-selector-wrap select { background-color: #374151; color: white; border: none; padding: 4px 8px; font-size: 12px; border-radius: 6px; }
+
+        .main-pnl { font-size: 32px; font-weight: 700; margin-bottom: 16px; }
+        .pnl-positive { color: var(--ios-green); }
+        .pnl-negative { color: var(--ios-red); }
+
+        .stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; border-top: 1px solid #374151; padding-top: 12px; }
+        .stat-item .label { font-size: 12px; color: #9ca3af; }
+        .stat-item .value { font-size: 15px; font-weight: 600; margin-top: 2px; }
+        .dashboard-breakdown { margin-top: 14px; padding-top: 12px; border-top: 1px dashed #374151; font-size: 13px; }
+        .breakdown-item { display: flex; justify-content: space-between; margin-bottom: 6px; }
+
+        /* 卡片样式 */
+        .card { background-color: var(--ios-card); border-radius: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid var(--ios-border); }
+        .card-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; font-size: 13px; color: var(--ios-secondary-text); margin-bottom: 4px; }
+
+        input, select { width: 100%; padding: 10px 12px; border: 1px solid var(--ios-border); border-radius: 8px; font-size: 15px; background-color: #fafafa; outline: none; }
+        input:focus, select:focus { border-color: var(--ios-blue); background-color: #ffffff; }
+
+        .btn { background-color: var(--ios-blue); color: white; border: none; border-radius: 8px; padding: 12px; font-size: 15px; font-weight: 600; width: 100%; cursor: pointer; text-align: center; }
+        .btn:active { opacity: 0.8; }
+        .btn-secondary { background-color: #e5e5ea; color: #3a3a3c; margin-top: 8px; }
+        .btn-danger { background-color: var(--ios-red); }
+        .btn-sm { padding: 4px 8px; font-size: 12px; border-radius: 4px; width: auto; display: inline-block; }
+
+        .segmented-control { display: flex; background-color: #eee; padding: 2px; border-radius: 8px; margin-bottom: 12px; }
+        .segmented-control button { flex: 1; border: none; padding: 8px; font-size: 14px; font-weight: 600; border-radius: 6px; background: transparent; color: #3a3a3c; cursor: pointer; }
+        .segmented-control button.active.buy { background-color: var(--ios-green); color: white; }
+        .segmented-control button.active.sell { background-color: var(--ios-red); color: white; }
+
+        .list-item { padding: 12px 0; border-bottom: 1px solid var(--ios-border); font-size: 14px; }
+        .list-item:last-child { border-bottom: none; }
+        .list-row { display: flex; justify-content: space-between; align-items: center; }
+
+        .badge { padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; color: white; }
+        .badge-buy { background-color: var(--ios-green); }
+        .badge-sell { background-color: var(--ios-red); }
+        .badge-stock { background-color: #5856d6; margin-right: 4px; }
+        
+        .text-muted { font-size: 12px; color: var(--ios-secondary-text); }
+        .matching-log { font-family: monospace; font-size: 12px; background-color: #f8f9fa; padding: 8px; border-radius: 6px; margin-top: 6px; border-left: 3px solid var(--ios-blue); color: #4b5563; line-height: 1.5; }
+        .action-links { display: flex; gap: 12px; margin-top: 6px; justify-content: flex-end; }
+        .action-links span { font-size: 12px; color: var(--ios-blue); cursor: pointer; }
+        .action-links span.del { color: var(--ios-red); }
+
+        /* 沙盒独立表格 */
+        .sim-table-wrap { width: 100%; overflow-x: auto; margin-top: 12px; border: 1px solid var(--ios-border); border-radius: 8px; }
+        .sim-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; background-color: #ffffff; }
+        .sim-table th { background-color: #f4f4f7; padding: 10px; font-weight: 600; border-bottom: 1px solid var(--ios-border); }
+        .sim-table td { padding: 10px; border-bottom: 1px solid var(--ios-border); }
+        .sim-table tr:last-child td { border-bottom: none; }
+
+        /* 底部导航 */
+        .tabs { display: flex; justify-content: space-around; background-color: var(--ios-card); border-top: 1px solid var(--ios-border); position: fixed; bottom: 0; left: 0; right: 0; padding: 6px 0 calc(6px + env(safe-area-inset-bottom)); z-index: 100; }
+        .tab-item { display: flex; flex-direction: column; align-items: center; font-size: 10px; color: var(--ios-secondary-text); background: none; border: none; flex: 1; }
+        .tab-item.active { color: var(--ios-blue); }
+        .tab-icon { font-size: 20px; margin-bottom: 2px; }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .hidden { display: none; }
+        .collapsible-trigger { font-size: 13px; color: var(--ios-blue); background: none; border: none; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1 id="page-title">网格交易控制台</h1>
+    </div>
+
+    <div class="container">
+        
+        <!-- 主账户动态真实看板 -->
+        <div class="dashboard" id="main-real-dashboard">
+            <div class="dashboard-header">
+                <div class="dashboard-title" id="pnl-dashboard-title">当前选择：全部股票</div>
+                <div class="stock-selector-wrap">
+                    <select id="dashboard-stock-filter" onchange="handleFilterChange()">
+                        <option value="ALL">全部股票</option>
+                    </select>
+                </div>
+            </div>
+            <div id="display-net-pnl" class="main-pnl pnl-positive">¥0.00</div>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="label">摩擦总税费</div>
+                    <div id="display-total-fees" class="value">¥0.00</div>
+                </div>
+                <div class="stat-item">
+                    <div class="label">当前未平仓敞口</div>
+                    <div id="display-exposure" class="value">0 股</div>
+                </div>
+            </div>
+            <div id="dashboard-breakdown" class="dashboard-breakdown" style="display: none;"></div>
+        </div>
+
+        <!-- 标签页 1：主记账面板 -->
+        <div id="tab-console" class="tab-content active">
+            <div class="card">
+                <div class="card-title">录入交易流水 (真实记账)</div>
+                <div class="segmented-control">
+                    <button type="button" id="btn-type-buy" class="active buy" onclick="setTradeType('BUY')">买入 (BUY)</button>
+                    <button type="button" id="btn-type-sell" onclick="setTradeType('SELL')">卖出 (SELL)</button>
+                </div>
+                <div class="form-group">
+                    <label>股票名称/标的代码</label>
+                    <input type="text" id="input-stock" placeholder="例如: 000792">
+                </div>
+                <div class="form-group">
+                    <label>成交价格 (¥)</label>
+                    <input type="number" id="input-price" step="0.001" placeholder="例如: 7.00">
+                </div>
+                <div class="form-group">
+                    <label>成交数量 (股)</label>
+                    <input type="number" id="input-amount" step="1" placeholder="例如: 1000">
+                </div>
+                <button type="button" class="btn" onclick="submitManualTrade()">确认录入</button>
+            </div>
+
+            <div class="card">
+                <div class="card-title">
+                    全局费率与计税设置
+                    <button class="collapsible-trigger" onclick="toggleSection('settings-form')">展开/收起</button>
+                </div>
+                <div id="settings-form" class="hidden">
+                    <div class="form-group">
+                        <label>佣金比例 (万1.35请输入 0.000135)</label>
+                        <input type="number" id="setup-commission" step="0.000001" value="0.000135">
+                    </div>
+                    <div class="form-group">
+                        <label>单笔最低佣金限制 (¥，普通A股设5，无限制设0)</label>
+                        <input type="number" id="setup-min-fee" step="1" value="5">
+                    </div>
+                    <div class="form-group">
+                        <label>印花税率 (仅在SELL单边征收，万5设 0.0005)</label>
+                        <input type="number" id="setup-stamp-duty" step="0.0001" value="0.0005">
+                    </div>
+                    <button type="button" class="btn btn-secondary" onclick="saveSettings()">应用并存储费率</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 标签页 2：FIFO 真实配对链 -->
+        <div id="tab-ledger" class="tab-content">
+            <div class="card">
+                <div class="card-title">当前未平仓队列 (FIFO 核心层)</div>
+                <div id="queue-container"><p class="text-muted" style="text-align: center; padding: 10px;">暂无未平仓敞口</p></div>
+            </div>
+            <div class="card">
+                <div class="card-title">已实现对冲平仓明细</div>
+                <div id="matches-container"><p class="text-muted" style="text-align: center; padding: 10px;">暂无对冲平仓记录</p></div>
+            </div>
+        </div>
+
+        <!-- 标签页 3：历史流水修改 -->
+        <div id="tab-history" class="tab-content">
+            <div class="card">
+                <div class="card-title">原始交易历史流水维护</div>
+                <div id="history-container"><p class="text-muted" style="text-align: center; padding: 10px;">暂无历史录入记录</p></div>
+            </div>
+            <div style="padding: 0 8px;"><button class="btn btn-danger" onclick="clearAllData()">清空所有本地数据</button></div>
+        </div>
+
+        <!-- 标签页 4：高级量化确定性仿真舱 -->
+        <div id="tab-sandbox" class="tab-content">
+            <div class="card">
+                <div class="card-title">第一性原理 & 资产净值压力模拟舱</div>
+                
+                <div class="form-group">
+                    <label>📊 选择测试情境</label>
+                    <select id="sim-scenario-mode">
+                        <option value="RISE">情境 1：单边上涨（从基准价向上触及上限）</option>
+                        <option value="FALL">情境 2：单边下跌（从基准价向下探底至下限）</option>
+                        <option value="SHOCK">情境 3：区间宽幅震荡回归（基准 ➔ 下限 ➔ 回归基准）</option>
+                        <option value="V_SHOCK">情境 4：大 V 型逆转回路（基准 ➔ 下限 ➔ 暴涨至上限）</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>📐 步长计算模式</label>
+                    <select id="sim-gap-type" onchange="updateGapLabels()">
+                        <option value="VALUE">固定价差模式 (元)</option>
+                        <option value="PERCENT">固定百分比模式 (%)</option>
+                    </select>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div class="form-group">
+                        <label>初始底仓股份 (股)</label>
+                        <input type="number" id="sim-init-qty" value="50000">
+                    </div>
+                    <div class="form-group">
+                        <label>原始成本基准价 (¥)</label>
+                        <input type="number" id="sim-base" step="0.01" value="7.00">
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div class="form-group">
+                        <label>区间安全上限 (¥)</label>
+                        <input type="number" id="sim-range-high" step="0.01" value="10.00">
+                    </div>
+                    <div class="form-group">
+                        <label>区间安全下限 (¥)</label>
+                        <input type="number" id="sim-range-low" step="0.01" value="4.70">
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div class="form-group">
+                        <label id="lbl-buy-gap">买入网格步长 (元)</label>
+                        <input type="number" id="sim-buy-gap" step="0.01" value="0.07">
+                    </div>
+                    <div class="form-group">
+                        <label id="lbl-sell-gap">卖出网格步长 (元)</label>
+                        <input type="number" id="sim-sell-gap" step="0.01" value="0.07">
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div class="form-group">
+                        <label>触发每步买入 (股)</label>
+                        <input type="number" id="sim-buy-amount" step="100" value="1100">
+                    </div>
+                    <div class="form-group">
+                        <label>触发每步卖出 (股)</label>
+                        <input type="number" id="sim-sell-amount" step="100" value="1000">
+                    </div>
+                </div>
+
+                <button type="button" class="btn" style="background-color: #5856d6;" onclick="runDeterministicSimulation()">执行全局净值推演</button>
+            </div>
+            
+            <!-- 策略内建独立报表 -->
+            <div class="card" id="sim-report-card">
+                <div class="card-title">🧪 极端场景对冲与资产净值测算诊断报告</div>
+                <div id="sim-result-summary" style="margin-bottom:14px;"></div>
+                <div id="sim-table-container">
+                    <p class="text-muted" style="text-align: center; padding: 10px;">尚未加载回测数据。</p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 底部导航 -->
+    <div class="tabs">
+        <button class="tab-item active" id="nav-console" onclick="switchTab('console')"><span class="tab-icon">📊</span><span>控制台</span></button>
+        <button class="tab-item" id="nav-ledger" onclick="switchTab('ledger')"><span class="tab-icon">🔄</span><span>FIFO对冲</span></button>
+        <button class="tab-item" id="nav-history" onclick="switchTab('history')"><span class="tab-icon">📝</span><span>流水维护</span></button>
+        <button class="tab-item" id="nav-sandbox" onclick="switchTab('sandbox')"><span class="tab-icon">🧪</span><span>策略测试</span></button>
+    </div>
+
+    <script>
+        // --- 核心全局状态 ---
+        let state = { settings: { commRate: 0.000135, minFee: 5, stampRate: 0.0005 }, trades: [], filterStock: 'ALL' };
+        let currentInputType = 'BUY';
+        let editingTradeId = null;
+
+        // --- 步长标签动态切换 ---
+        function updateGapLabels() {
+            const type = document.getElementById('sim-gap-type').value;
+            const buyLabel = document.getElementById('lbl-buy-gap');
+            const sellLabel = document.getElementById('lbl-sell-gap');
+            if (type === 'PERCENT') {
+                buyLabel.innerText = '买入网格步长 (%)';
+                sellLabel.innerText = '卖出网格步长 (%)';
+            } else {
+                buyLabel.innerText = '买入网格步长 (元)';
+                sellLabel.innerText = '卖出网格步长 (元)';
+            }
+        }
+
+        // --- 真实账户数据核心 FIFO 引擎 ---
+        function calculateMultiStockFIFO() {
+            let stocksInProject = [...new Set(state.trades.map(t => t.stockName.trim()))].filter(Boolean);
+            let globalSummary = { realizedPnL: 0, totalFees: 0, perStockResults: {} };
+
+            stocksInProject.forEach(stock => {
+                let stockTrades = state.trades.filter(t => t.stockName.trim() === stock).sort((a, b) => a.timestamp - b.timestamp);
+                let queue = [], matches = [], totalFees = 0, realizedPnL = 0;
+
+                let processed = stockTrades.map(t => {
+                    const volume = t.price * t.amount;
+                    let commission = volume * state.settings.commRate;
+                    if (commission < state.settings.minFee && state.settings.minFee > 0) commission = state.settings.minFee;
+                    let stampDuty = (t.type === 'SELL') ? (volume * state.settings.stampRate) : 0;
+                    return { ...t, remaining: t.amount, totalFee: commission + stampDuty };
+                });
+
+                processed.forEach(trade => {
+                    totalFees += trade.totalFee;
+                    let remainingToMatch = trade.amount;
+
+                    while (remainingToMatch > 0 && queue.length > 0 && queue[0].type !== trade.type) {
+                        let openOrder = queue[0];
+                        let matchedAmount = Math.min(remainingToMatch, openOrder.remaining);
+                        let grossProfit = (openOrder.type === 'BUY') ? (trade.price - openOrder.price) * matchedAmount : (openOrder.price - trade.price) * matchedAmount;
+
+                        let allocatedOpenFee = openOrder.totalFee * (matchedAmount / openOrder.amount);
+                        let allocatedCloseFee = trade.totalFee * (matchedAmount / trade.amount);
+                        let matchNetPnL = grossProfit - allocatedOpenFee - allocatedCloseFee;
+
+                        realizedPnL += matchNetPnL;
+                        matches.push({
+                            stockName: stock, openType: openOrder.type, openPrice: openOrder.price, closePrice: trade.price,
+                            amount: matchedAmount, gross: grossProfit, fees: allocatedOpenFee + allocatedCloseFee, net: matchNetPnL
+                        });
+
+                        remainingToMatch -= matchedAmount;
+                        openOrder.remaining -= matchedAmount;
+                        if (openOrder.remaining <= 0) queue.shift();
+                    }
+
+                    if (remainingToMatch > 0) {
+                        queue.push({
+                            type: trade.type, price: trade.price, amount: trade.amount, remaining: remainingToMatch,
+                            totalFee: trade.totalFee * (remainingToMatch / trade.amount)
+                        });
+                    }
+                });
+
+                let totalExposure = queue.reduce((sum, item) => sum + item.remaining, 0);
+                let signedExposure = (queue.length > 0 && queue[0].type === 'SELL') ? -totalExposure : totalExposure;
+                let currentQueueType = queue.length > 0 ? (queue[0].type === 'BUY' ? '买入持仓' : '卖出空头') : '已平仓';
+
+                globalSummary.perStockResults[stock] = {
+                    queue, matches, totalFees, realizedPnL, totalExposure, signedExposure, currentQueueType,
+                    exposureText: `${signedExposure} 股 (${currentQueueType})`
+                };
+                globalSummary.realizedPnL += realizedPnL;
+                globalSummary.totalFees += totalFees;
+            });
+            return globalSummary;
+        }
+
+        // --- 真实 UI 更新渲染 ---
+        function updateUI() {
+            const matrix = calculateMultiStockFIFO();
+            const filterSelect = document.getElementById('dashboard-stock-filter');
+            const prevSelected = state.filterStock;
+            filterSelect.innerHTML = '<option value="ALL">全部股票总计</option>';
+            
+            const uniqueStocks = [...new Set(state.trades.map(t => t.stockName.trim()))].filter(Boolean);
+            uniqueStocks.forEach(stock => {
+                let opt = document.createElement('option'); opt.value = stock; opt.innerText = stock; filterSelect.appendChild(opt);
+            });
+            filterSelect.value = prevSelected;
+
+            let displayPnL = 0, displayFees = 0, displayExposureStr = "0 股";
+
+            if (state.filterStock === 'ALL') {
+                document.getElementById('pnl-dashboard-title').innerText = "当前选择：全部股票总览";
+                displayPnL = matrix.realizedPnL; displayFees = matrix.totalFees;
+                let expArr = [];
+                for(let s in matrix.perStockResults) {
+                    if(matrix.perStockResults[s].totalExposure > 0) expArr.push(`${s}:${matrix.perStockResults[s].signedExposure}股`);
+                }
+                displayExposureStr = expArr.length > 0 ? expArr.join(' | ') : "无任何未平持仓";
+            } else {
+                const spec = matrix.perStockResults[state.filterStock];
+                document.getElementById('pnl-dashboard-title').innerText = `当前选择：${state.filterStock}`;
+                if (spec) { displayPnL = spec.realizedPnL; displayFees = spec.totalFees; displayExposureStr = spec.exposureText; }
+            }
+
+            const pnlEl = document.getElementById('display-net-pnl');
+            pnlEl.innerText = `¥${displayPnL.toFixed(2)}`;
+            pnlEl.className = displayPnL >= 0 ? "main-pnl pnl-positive" : "main-pnl pnl-negative";
+            document.getElementById('display-total-fees').innerText = `¥${displayFees.toFixed(2)}`;
+            document.getElementById('display-exposure').innerText = displayExposureStr;
+
+            const breakdownEl = document.getElementById('dashboard-breakdown');
+            let breakdownHTML = '<div style="color: #9ca3af; font-size: 11px; margin-bottom: 6px; font-weight: 600;">个股真实账目贡献表：</div>';
+            let hasStocks = false;
+            for (let stockName in matrix.perStockResults) {
+                hasStocks = true;
+                const specData = matrix.perStockResults[stockName];
+                breakdownHTML += `<div class="breakdown-item"><span style="color:#e5e7eb;">📌 ${stockName}</span><span>净利: <strong class="${specData.realizedPnL>=0?'pnl-positive':'pnl-negative'}">¥${specData.realizedPnL.toFixed(2)}</strong> <small style="color:#9ca3af;">(${specData.signedExposure}股)</small></span></div>`;
+            }
+            breakdownEl.innerHTML = breakdownHTML; breakdownEl.style.display = hasStocks ? 'block' : 'none';
+
+            // 渲染对冲链
+            const qContainer = document.getElementById('queue-container');
+            let queueHTML = '';
+            for(let stock in matrix.perStockResults) {
+                if(state.filterStock !== 'ALL' && state.filterStock !== stock) continue;
+                matrix.perStockResults[stock].queue.forEach(item => {
+                    queueHTML += `<div class="list-item"><div class="list-row"><div><span class="badge badge-stock">${stock}</span><span class="badge ${item.type==='BUY'?'badge-buy':'badge-sell'}">${item.type==='BUY'?'买入持仓':'卖出'}</span><strong> ¥${item.price.toFixed(3)}</strong></div><div>未平份: <strong>${item.remaining}</strong> / ${item.amount} 股</div></div></div>`;
+                });
+            }
+            qContainer.innerHTML = queueHTML || `<p class="text-muted" style="text-align: center; padding: 10px;">暂无未平仓敞口</p>`;
+
+            const mContainer = document.getElementById('matches-container');
+            let allMatches = [];
+            for(let stock in matrix.perStockResults) {
+                if(state.filterStock !== 'ALL' && state.filterStock !== stock) continue;
+                allMatches = allMatches.concat(matrix.perStockResults[stock].matches);
+            }
+            mContainer.innerHTML = allMatches.length === 0 ? `<p class="text-muted" style="text-align: center; padding: 10px;">暂无对冲平仓记录</p>` : allMatches.map(m => `
+                <div class="list-item"><div class="list-row"><div><span class="badge badge-stock">${m.stockName}</span><small class="text-muted">${m.openType==='BUY'?'正向对冲':'反向对冲'}</small></div><div class="${m.net>=0?'pnl-positive':'pnl-negative'}" style="font-weight:700;">¥${m.net.toFixed(2)}</div></div>
+                <div class="matching-log">量: ${m.amount} 股 | 开仓价: ¥${m.openPrice.toFixed(2)} ➔ 平仓价: ¥${m.closePrice.toFixed(2)} | 税费: ¥${m.fees.toFixed(2)}</div></div>
+            `).join('');
+
+            renderHistoryTable();
+        }
+
+        function renderHistoryTable() {
+            const histContainer = document.getElementById('history-container');
+            if(state.trades.length === 0) { histContainer.innerHTML = `<p class="text-muted" style="text-align: center; padding: 10px;">暂无历史录入流</p>`; return; }
+            let sorted = [...state.trades].sort((a,b) => b.timestamp - a.timestamp);
+            histContainer.innerHTML = sorted.map(t => {
+                if (editingTradeId === t.id) {
+                    return `<div class="list-item"><div class="inline-edit-form"><div class="grid-inputs"><input type="text" id="edit-stock-${t.id}" value="${t.stockName}"><input type="number" id="edit-price-${t.id}" step="0.001" value="${t.price}"><input type="number" id="edit-amount-${t.id}" value="${t.amount}"></div>
+                    <div style="text-align:right;"><button class="btn btn-sm btn-secondary" onclick="cancelInlineEdit()">取消</button><button class="btn btn-sm" onclick="saveInlineEdit('${t.id}')">保存</button></div></div></div>`;
+                }
+                return `<div class="list-item"><div class="list-row"><div><span class="badge badge-stock">${t.stockName}</span><span class="badge ${t.type==='BUY'?'badge-buy':'badge-sell'}">${t.type==='BUY'?'买入':'卖出'}</span><strong> ¥${t.price}</strong> x ${t.amount}股</div><div class="action-links"><span onclick="enterInlineEdit('${t.id}')">📝编辑</span><span class="del" onclick="deleteTrade('${t.id}')">🗑️删除</span></div></div></div>`;
+            }).join('');
+        }
+
+        function enterInlineEdit(id) { editingTradeId = id; renderHistoryTable(); }
+        function cancelInlineEdit() { editingTradeId = null; renderHistoryTable(); }
+        function saveInlineEdit(id) {
+            const s = document.getElementById(`edit-stock-${id}`).value.trim(), p = parseFloat(document.getElementById(`edit-price-${id}`).value), a = parseInt(document.getElementById(`edit-amount-${id}`).value);
+            if(!s || isNaN(p) || isNaN(a)) return;
+            let idx = state.trades.findIndex(t => t.id === id);
+            if(idx!==-1) { state.trades[idx].stockName = s; state.trades[idx].price = p; state.trades[idx].amount = a; }
+            editingTradeId = null; saveToLocalStorage(); updateUI();
+        }
+        function deleteTrade(id) { if(confirm('确认删除该单？')) { state.trades = state.trades.filter(t => t.id !== id); saveToLocalStorage(); updateUI(); } }
+        function handleFilterChange() { state.filterStock = document.getElementById('dashboard-stock-filter').value; updateUI(); }
+        function setTradeType(type) { currentInputType = type; document.getElementById('btn-type-buy').className = type==='BUY'?'active buy':''; document.getElementById('btn-type-sell').className = type==='SELL'?'active sell':''; }
+        function submitManualTrade() {
+            const s = document.getElementById('input-stock').value.trim(), p = parseFloat(document.getElementById('input-price').value), a = parseInt(document.getElementById('input-amount').value);
+            if(!s || isNaN(p) || isNaN(a)) { alert('请检查输入格式'); return; }
+            state.trades.push({ id:'t_'+Date.now(), stockName:s, type:currentInputType, price:p, amount:a, timestamp:Date.now() });
+            saveToLocalStorage(); updateUI();
+        }
+        function saveSettings() { state.settings.commRate = parseFloat(document.getElementById('setup-commission').value); state.settings.minFee = parseFloat(document.getElementById('setup-min-fee').value); state.settings.stampRate = parseFloat(document.getElementById('setup-stamp-duty').value); saveToLocalStorage(); updateUI(); alert('费率已保存'); }
+        function toggleSection(id) { const el = document.getElementById(id); el.className = el.className==='hidden'?'':'hidden'; }
+        function saveToLocalStorage() { localStorage.setItem('grid_tracker_multistock_state', JSON.stringify(state)); }
+        function loadFromLocalStorage() { const saved = localStorage.getItem('grid_tracker_multistock_state'); if(saved) { try{ state = JSON.parse(saved); if(!state.trades) state.trades=[]; }catch(e){} } }
+        function clearAllData() { if(confirm('确定清空？')) { localStorage.clear(); state.trades=[]; updateUI(); } }
+        function switchTab(tabName) {
+            const titles = { 'console':'网格多股控制台', 'ledger':'FIFO 多股自适应对冲链', 'history':'交易历史维护中心', 'sandbox':'多股沙盒模拟舱' };
+            document.getElementById('page-title').innerText = titles[tabName];
+            ['console', 'ledger', 'history', 'sandbox'].forEach(id => {
+                document.getElementById(`nav-${id}`).className = id === tabName ? 'tab-item active' : 'tab-item';
+                document.getElementById(`tab-${id}`).className = id === tabName ? 'tab-content active' : 'tab-content';
+            });
+            document.getElementById('main-real-dashboard').style.display = tabName === 'sandbox' ? 'none' : 'block';
+        }
+
+        // =========================================================================
+        // --- 🧠 【全局资产净值法核算】第一性原理确定性仿真推演引擎（支持双模步长） ---
+        // =========================================================================
+        function calcSingleFee(type, price, amount) {
+            let volume = price * amount;
+            let commission = volume * state.settings.commRate;
+            if (commission < state.settings.minFee && state.settings.minFee > 0) commission = state.settings.minFee;
+            let stampDuty = (type === 'SELL') ? (volume * state.settings.stampRate) : 0;
+            return commission + stampDuty;
+        }
+
+        function runDeterministicSimulation() {
+            const mode = document.getElementById('sim-scenario-mode').value;
+            const gapType = document.getElementById('sim-gap-type').value;
+            const initQty = parseInt(document.getElementById('sim-init-qty').value) || 0;
+            const basePrice = parseFloat(document.getElementById('sim-base').value);
+            const rangeHigh = parseFloat(document.getElementById('sim-range-high').value);
+            const rangeLow = parseFloat(document.getElementById('sim-range-low').value);
+            const buyGap = parseFloat(document.getElementById('sim-buy-gap').value);
+            const sellGap = parseFloat(document.getElementById('sim-sell-gap').value);
+            const buyAmount = parseInt(document.getElementById('sim-buy-amount').value) || 0;
+            const sellAmount = parseInt(document.getElementById('sim-sell-amount').value) || 0;
+
+            if (isNaN(basePrice) || isNaN(rangeHigh) || isNaN(rangeLow) || buyGap <= 0 || sellGap <= 0 || initQty <= 0) {
+                alert('请填写正确的基准持仓、网格区间与独立步长！'); return;
+            }
+
+            const originalCost = initQty * basePrice; // 原始底仓成本
+            let rawSteps = [];
+            let lastValidBuyPrice = basePrice; 
+
+            // 将百分比转化为小数因子
+            const buyGapFactor = buyGap / 100;
+            const sellGapFactor = sellGap / 100;
+
+            if (mode === 'RISE') {
+                let p = basePrice;
+                while (true) {
+                    if (gapType === 'VALUE') {
+                        p = p + sellGap;
+                    } else {
+                        p = p * (1 + sellGapFactor);
+                    }
+                    p = parseFloat(p.toFixed(4));
+                    if (p > rangeHigh) break;
+                    rawSteps.push({ type: 'SELL', price: p, qty: sellAmount });
+                }
+            } else if (mode === 'FALL') {
+                let p = basePrice;
+                while (true) {
+                    if (gapType === 'VALUE') {
+                        p = p - buyGap;
+                    } else {
+                        p = p * (1 - buyGapFactor);
+                    }
+                    p = parseFloat(p.toFixed(4));
+                    if (p < rangeLow) break;
+                    rawSteps.push({ type: 'BUY', price: p, qty: buyAmount });
+                }
+            } else if (mode === 'SHOCK' || mode === 'V_SHOCK') {
+                // 1. 下跌阶段：计算网格触发点
+                let p = basePrice;
+                while (true) {
+                    if (gapType === 'VALUE') {
+                        p = p - buyGap;
+                    } else {
+                        p = p * (1 - buyGapFactor);
+                    }
+                    p = parseFloat(p.toFixed(4));
+                    if (p < rangeLow) break;
+                    rawSteps.push({ type: 'BUY', price: p, qty: buyAmount });
+                    lastValidBuyPrice = p; // 动态锁定实际最低买入价锚点
+                }
+                
+                // 2. 反弹阶段：以实际触底价作为物理起点向上拉升
+                let upP = lastValidBuyPrice;
+                let limitPrice = (mode === 'SHOCK') ? basePrice : rangeHigh;
+                while (true) {
+                    if (gapType === 'VALUE') {
+                        upP = upP + sellGap;
+                    } else {
+                        upP = upP * (1 + sellGapFactor);
+                    }
+                    upP = parseFloat(upP.toFixed(4));
+                    if (upP > limitPrice) break;
+                    rawSteps.push({ type: 'SELL', price: upP, qty: sellAmount });
+                }
+            }
+
+            // 账目流水与 NAV 终点合并通算
+            let simCash = 0;           
+            let simShares = initQty;   
+            let totalFees = 0;         
+            let finalPrice = basePrice; 
+            let tableRowsHTML = [];
+
+            rawSteps.forEach((step, index) => {
+                finalPrice = step.price; 
+                let fee = calcSingleFee(step.type, step.price, step.qty);
+                totalFees += fee;
+
+                if (step.type === 'BUY') {
+                    simShares += step.qty;
+                    let cashOut = step.price * step.qty + fee;
+                    simCash -= cashOut;
+
+                    tableRowsHTML.push(`
+                        <tr>
+                            <td><b>${index + 1}</b></td>
+                            <td><span class="badge badge-buy">买入补仓</span></td>
+                            <td>¥${step.price.toFixed(2)}</td>
+                            <td>${step.qty} 股</td>
+                            <td>¥${fee.toFixed(2)}</td>
+                            <td>-¥${cashOut.toFixed(2)}</td>
+                            <td>${simShares} 股</td>
+                            <td>¥${simCash.toFixed(2)}</td>
+                        </tr>
+                    `);
+                } else {
+                    let actualSell = step.qty;
+                    if (actualSell > simShares) actualSell = simShares;
+                    
+                    if (actualSell > 0) {
+                        simShares -= actualSell;
+                        let cashIn = step.price * actualSell - fee;
+                        simCash += cashIn;
+
+                        tableRowsHTML.push(`
+                            <tr>
+                                <td><b>${index + 1}</b></td>
+                                <td><span class="badge badge-sell">高抛卖出</span></td>
+                                <td>¥${step.price.toFixed(2)}</td>
+                                <td>${actualSell} 股</td>
+                                <td>¥${fee.toFixed(2)}</td>
+                                <td>+¥${cashIn.toFixed(2)}</td>
+                                <td>${simShares} 股</td>
+                                <td>¥${simCash.toFixed(2)}</td>
+                            </tr>
+                        `);
+                    }
+                }
+            });
+
+            const finalStockValue = simShares * finalPrice;      
+            const finalTotalNAV = simCash + finalStockValue;      
+            const finalTotalPnL = finalTotalNAV - originalCost;  
+
+            let pnlStyle = finalTotalPnL >= 0 ? 'background-color: #d4edda; color: #155724; border-left: 4px solid var(--ios-green);' : 'background-color: #f8d7da; color: #721c24; border-left: 4px solid var(--ios-red);';
+            let textClass = finalTotalPnL >= 0 ? 'pnl-positive' : 'pnl-negative';
+
+            summaryHTML = `
+                <div style="${pnlStyle} padding: 14px; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+                    <strong>📋 情境动态推演报告 (终点结算价: ¥${finalPrice.toFixed(2)})：</strong><br>
+                    &bull; 初始底仓投入：<b>${initQty} 股</b> @ ¥${basePrice.toFixed(2)} (原始总成本: <b>¥${originalCost.toFixed(2)}</b>)<br>
+                    &bull; 模拟路径期末留存股份：<b class="${textClass}">${simShares} 股</b> (期末股票总价值: <b>¥${finalStockValue.toFixed(2)}</b>)<br>
+                    &bull; 过程产生摩擦总税费：<b>¥${totalFees.toFixed(2)}</b><br>
+                    &bull; 交易结算累积相对现金余数：<b>¥${simCash.toFixed(2)}</b><br>
+                    <hr style="margin: 8px 0; border: none; border-top: 1px dashed rgba(0,0,0,0.1);">
+                    &bull; <b>【全局资产净值 (NAV)】: ¥${finalTotalNAV.toFixed(2)}</b><br>
+                    &bull; <b>【考虑股份变动后的终极总损益】: <span style="font-size:18px; font-weight:800;" class="${textClass}">¥${finalTotalPnL.toFixed(2)}</span></b><br>
+                    <small style="color: #666; display:block; margin-top:4px;">(算法公式：期末现金 ¥${simCash.toFixed(2)} + 期末持仓市值 ¥${finalStockValue.toFixed(2)} - 原始投入成本 ¥${originalCost.toFixed(2)})</small>
+                </div>
+            `;
+
+            let finalTableHTML = `
+                <div style="font-size:12px; color:var(--ios-secondary-text); margin: 12px 0 6px 0;">📋 沙盒确定性分步交易流水与资产跟踪表：</div>
+                <div class="sim-table-wrap">
+                    <table class="sim-table">
+                        <thead>
+                            <tr>
+                                <th>步骤</th>
+                                <th>网格类型</th>
+                                <th>执行价</th>
+                                <th>交易股数</th>
+                                <th>单笔税费</th>
+                                <th>单步净现金流</th>
+                                <th>结余股份</th>
+                                <th>累计沙盒现金</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${tableRowsHTML.length > 0 ? tableRowsHTML.join('') : '<tr><td colspan="8" style="text-align:center; color:#8e8e93;">此参数下未触发任何网格阈值</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            document.getElementById('sim-result-summary').innerHTML = summaryHTML;
+            document.getElementById('sim-table-container').innerHTML = finalTableHTML;
+        }
+
+        window.onload = function() { loadFromLocalStorage(); updateUI(); };
+    </script>
+</body>
+</html>
